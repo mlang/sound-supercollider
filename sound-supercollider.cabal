@@ -1,0 +1,91 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.35.1.
+--
+-- see: https://github.com/sol/hpack
+
+name:           sound-supercollider
+version:        0.1
+description:    A simple SuperCollider client library
+homepage:       https://github.com/mlang/sound-supercollider#readme
+bug-reports:    https://github.com/mlang/sound-supercollider/issues
+author:         Mario Lang
+maintainer:     mlang@blind.guru
+copyright:      2022 Mario Lang
+license:        BSD3
+build-type:     Simple
+
+source-repository head
+  type: git
+  location: https://github.com/mlang/sound-supercollider
+
+library
+  exposed-modules:
+      Sound.SuperCollider.Message
+      Sound.SuperCollider.Render
+      Sound.SuperCollider.Server
+      Sound.SuperCollider.SynthDef
+  other-modules:
+      Paths_sound_supercollider
+  hs-source-dirs:
+      ./
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
+  build-depends:
+      async
+    , base >=4.14
+    , binary
+    , brick >=1.0
+    , bytestring
+    , containers
+    , deepseq
+    , event-list
+    , exceptions
+    , groups
+    , hosc >=0.20
+    , microlens
+    , microlens-contra
+    , microlens-mtl
+    , midi
+    , mtl
+    , nonempty-containers
+    , sort
+    , stm
+    , stm-chans
+    , transformers >=0.5.3
+    , typed-process
+    , vector
+  default-language: Haskell2010
+
+executable sound-supercollider-playmidi
+  main-is: Main.hs
+  other-modules:
+      Paths_sound_supercollider
+  hs-source-dirs:
+      playmidi
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      async
+    , base >=4.14
+    , binary
+    , brick >=1.0
+    , bytestring
+    , containers
+    , deepseq
+    , event-list
+    , exceptions
+    , groups
+    , hosc >=0.20
+    , microlens
+    , microlens-contra
+    , microlens-mtl
+    , midi
+    , mtl
+    , nonempty-containers
+    , sort
+    , sound-supercollider
+    , stm
+    , stm-chans
+    , transformers >=0.5.3
+    , typed-process
+    , vector
+  default-language: Haskell2010

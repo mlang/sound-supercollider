@@ -1,0 +1,8 @@
+resolver: nightly-2022-12-26
+packages:
+- .
+extra-deps:
+- hosc-0.20
+flags:
+  brick:
+    demos: false

@@ -1,0 +1,59 @@
+name:                sound-supercollider
+version:             0.1
+github:              "mlang/sound-supercollider"
+license:             BSD3
+author:              "Mario Lang"
+maintainer:          "mlang@blind.guru"
+copyright:           "2022 Mario Lang"
+
+description:         A simple SuperCollider client library
+
+dependencies:
+- async
+- base >= 4.14
+- binary
+- brick >= 1.0
+- bytestring
+- containers
+- deepseq
+- event-list
+- exceptions
+- groups
+- hosc >= 0.20
+- microlens
+- microlens-contra
+- microlens-mtl
+- midi
+- mtl
+- nonempty-containers
+- sort
+- stm
+- stm-chans
+- transformers >= 0.5.3
+- typed-process
+- vector
+
+ghc-options:
+- -Wall
+- -Wcompat
+- -Widentities
+- -Wincomplete-record-updates
+- -Wincomplete-uni-patterns
+- -Wmissing-export-lists
+- -Wmissing-home-modules
+- -Wpartial-fields
+- -Wredundant-constraints
+
+library:
+  source-dirs: .
+
+executables:
+  sound-supercollider-playmidi:
+    main:                Main.hs
+    source-dirs:         playmidi
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    dependencies:
+    - sound-supercollider
