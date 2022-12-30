@@ -239,7 +239,7 @@ instance (Monad m, MonadMessage m) => MonadMessage (Lazy.StateT s m) where
 instance (Monad m, MonadMessage m) => MonadMessage (Strict.StateT s m) where
   msg = lift . msg
 
-instance (Monoid w, Monad m, MonadMessage m) => MonadMessage (CPS.WriterT w m) where
+instance (Monad m, MonadMessage m) => MonadMessage (CPS.WriterT w m) where
   msg = lift . msg
 
 instance (Monoid w, Monad m, MonadMessage m) => MonadMessage (Lazy.WriterT w m) where

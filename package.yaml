@@ -9,8 +9,9 @@ copyright:           "2022 Mario Lang"
 description:         A simple SuperCollider client library
 
 dependencies:
+- aeson
 - async
-- base >= 4.14
+- base >= 4.16
 - binary
 - brick >= 1.0
 - bytestring
@@ -29,6 +30,7 @@ dependencies:
 - sort
 - stm
 - stm-chans
+- text
 - transformers >= 0.5.3
 - typed-process
 - vector

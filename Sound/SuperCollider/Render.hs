@@ -14,31 +14,36 @@ module Sound.SuperCollider.Render (
 , logT
 ) where
 
-import           Control.Concurrent            (forkIO)
-import           Control.Concurrent.Async      (waitEither, withAsync)
-import           Control.Concurrent.STM        (atomically)
-import           Control.Concurrent.STM.TChan  (readTChan)
+import           Control.Concurrent                (forkIO)
+import           Control.Concurrent.Async          (waitEither, withAsync)
+import           Control.Concurrent.STM            (atomically)
+import           Control.Concurrent.STM.TChan      (readTChan)
 import           Control.Concurrent.STM.TMChan
 import           Control.Monad.Reader
-import           Control.Monad.State
 import           Control.Monad.Trans.Accum
+import qualified Control.Monad.Trans.State.Lazy    as Lazy
+import qualified Control.Monad.Trans.State.Strict  as Strict
+import qualified Control.Monad.Trans.Writer.CPS    as CPS
+import qualified Control.Monad.Trans.Writer.Lazy   as Lazy
+import qualified Control.Monad.Trans.Writer.Strict as Strict
 import           Control.Monad.Writer
-import           Data.Foldable                 (Foldable (foldl', toList), for_)
-import           Data.Function                 (on)
-import           Data.Group                    (Group (invert))
-import           Data.List.NonEmpty            (NonEmpty (..), groupBy)
-import qualified Data.List.NonEmpty            as NonEmpty (head)
-import           Data.Map                      (Map)
-import qualified Data.Map                      as Map
-import           Data.Ord                      (comparing)
-import           Data.Semigroup                (Sum (..))
-import           Data.Sort                     (sortBy)
-import           Sound.Osc.Fd                  (Bundle (..), Time, sendBundle,
-                                                time)
+import           Data.Foldable                     (Foldable (foldl', toList),
+                                                    for_)
+import           Data.Function                     (on)
+import           Data.Group                        (Group (invert))
+import           Data.List.NonEmpty                (NonEmpty (..), groupBy)
+import qualified Data.List.NonEmpty                as NonEmpty (head)
+import           Data.Map                          (Map)
+import qualified Data.Map                          as Map
+import           Data.Ord                          (comparing)
+import           Data.Semigroup                    (Sum (..))
+import           Data.Sort                         (sortBy)
+import           Sound.Osc.Fd                      (Bundle (..), Time,
+                                                    sendBundle, time)
 import           Sound.SuperCollider.Message
 import           Sound.SuperCollider.Server
 
-newtype RenderT m a = RenderT (WriterT [(Rational, Message)]
+newtype RenderT m a = RenderT (CPS.WriterT [(Rational, Message)]
                                        (AccumT (Pos Double Rational) m) a)
   deriving newtype ( Functor
                    , Applicative
@@ -48,10 +53,10 @@ newtype RenderT m a = RenderT (WriterT [(Rational, Message)]
 
 instance MonadReader r m => MonadReader r (RenderT m) where
   ask = lift ask
-  local f (RenderT m) = RenderT $ (mapWriterT . mapAccumT) (local f) m
+  local f (RenderT m) = RenderT $ (CPS.mapWriterT . mapAccumT) (local f) m
 
 instance Monad m => MonadMessage (RenderT m) where
-  msg m = RenderT $ (lift . looks) (getSum . snd) >>= \t -> tell [(t, m)]
+  msg m = RenderT $ (lift . looks) (getSum . snd) >>= \t -> CPS.tell [(t, m)]
 
 instance MonadTrans RenderT where
   lift = RenderT . lift . lift
@@ -61,13 +66,13 @@ instance (Monad m, MonadServer m) => MonadServer (RenderT m) where
   shadow field value m = RenderT $ do
     p@(_, s) <- lift look
     ((a, w), (tm', s')) <- lift . lift . shadow field value $ runRenderT m p
-    tell w
+    CPS.tell w
     lift . add $ (tm', s - s')
     pure a
 
 runRenderT :: RenderT m a-> Pos Double Rational
            -> m ((a, [(Rational, Message)]), Pos Double Rational)
-runRenderT (RenderT m) s = runWriterT m `runAccumT` s
+runRenderT (RenderT m) s = CPS.runWriterT m `runAccumT` s
 
 class MonadRender m where
   setTempo :: Double -> m ()
@@ -78,11 +83,23 @@ instance Monad m => MonadRender (RenderT m) where
     ((), (Map.singleton s t, mempty))
   plusTime a = RenderT . lift . add $ (mempty, Sum a)
 
-instance (Monad m, MonadRender m) => MonadRender (StateT s m) where
+instance (Monad m, MonadRender m) => MonadRender (Lazy.StateT s m) where
   setTempo = lift . setTempo
   plusTime = lift . plusTime
 
-instance (Monoid w, Monad m, MonadRender m) => MonadRender (WriterT w m) where
+instance (Monad m, MonadRender m) => MonadRender (Strict.StateT s m) where
+  setTempo = lift . setTempo
+  plusTime = lift . plusTime
+
+instance (Monoid w, Monad m, MonadRender m) => MonadRender (CPS.WriterT w m) where
+  setTempo = lift . setTempo
+  plusTime = lift . plusTime
+
+instance (Monoid w, Monad m, MonadRender m) => MonadRender (Lazy.WriterT w m) where
+  setTempo = lift . setTempo
+  plusTime = lift . plusTime
+
+instance (Monoid w, Monad m, MonadRender m) => MonadRender (Strict.WriterT w m) where
   setTempo = lift . setTempo
   plusTime = lift . plusTime
 

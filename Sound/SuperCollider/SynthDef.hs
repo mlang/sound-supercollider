@@ -11,6 +11,7 @@ module Sound.SuperCollider.SynthDef (
 import           Control.Applicative (Applicative (liftA2))
 import           Control.DeepSeq     (NFData)
 import           Control.Monad       (replicateM)
+import           Data.Aeson          (FromJSON, ToJSON)
 import           Data.Binary         (Binary (get, put))
 import           Data.Binary.Get
 import           Data.Binary.Put
@@ -18,6 +19,8 @@ import           Data.ByteString     (ByteString)
 import qualified Data.ByteString     as ByteString (length)
 import           Data.Foldable       (for_)
 import           Data.Int            (Int32)
+import           Data.Text           (Text)
+import           Data.Text.Encoding  (decodeLatin1, decodeUtf8, encodeUtf8)
 import           Data.Vector         (Vector)
 import qualified Data.Vector         as Vector (length, replicateM)
 import           Data.Vector.Unboxed (Unbox)
@@ -28,7 +31,10 @@ import           Data.Word           (Word16, Word32)
 import           GHC.Generics        (Generic)
 
 newtype SynthDef = SynthDef [GraphDef]
-                 deriving (Eq, NFData, Read, Semigroup, Show)
+                 deriving (Eq, Generic, NFData, Read, Semigroup, Show)
+
+instance FromJSON SynthDef
+instance ToJSON SynthDef
 
 instance Binary SynthDef where
   get = getByteString 4 >>= \case
@@ -41,44 +47,48 @@ instance Binary SynthDef where
     putWord32be 2
     putList gs putWord16be put
 
-data GraphDef = GraphDef ByteString
+data GraphDef = GraphDef Text
                          (Unboxed.Vector Float)
                          (Unboxed.Vector Float)
-                         [(ByteString, Int32)]
+                         [(Text, Int32)]
                          (Vector UGen)
-                         [(ByteString, Unboxed.Vector Float)]
+                         [(Text, Unboxed.Vector Float)]
               deriving (Eq, Generic, Read, Show)
 
 instance NFData GraphDef
+instance FromJSON GraphDef
+instance ToJSON GraphDef
 
 instance Binary GraphDef where
   get = do
-    graphDef <- GraphDef <$> getPascalString
+    graphDef <- GraphDef <$> fmap decodeUtf8 getPascalString
                          <*> getUnboxedVector getWord32be getFloatbe
     ctrlDefaults <- getUnboxedVector getWord32be getFloatbe
     graphDef ctrlDefaults <$> getList getWord32be getControlName
                           <*> getVector getWord32be get
                           <*> getList getWord16be (getVariant (Unboxed.Vector.length ctrlDefaults))
    where
-    getControlName = liftA2 (,) getPascalString getInt32be
-    getVariant n = liftA2 (,) getPascalString (Unboxed.Vector.replicateM n getFloatbe)
+    getControlName = liftA2 (,) (decodeLatin1 <$> getPascalString) getInt32be
+    getVariant n = liftA2 (,) (decodeLatin1 <$> getPascalString) (Unboxed.Vector.replicateM n getFloatbe)
   put (GraphDef n c cd cn u v) = do
-    putPascalString n
+    putPascalString (encodeUtf8 n)
     putUnboxedVector c putWord32be putFloatbe
     putUnboxedVector cd putWord32be putFloatbe
     putList cn putWord32be $ \(a, b) -> do
-      putPascalString a
+      putPascalString (encodeUtf8 a)
       putInt32be b
     putWord32be . fromIntegral . Vector.length $ u
     for_ u put
     putList v putWord16be $ \(vn, vcd) -> do
-      putPascalString vn
+      putPascalString (encodeUtf8 vn)
       Unboxed.Vector.forM_ vcd putFloatbe
 
 data Rate = Scalar | Control | Audio | Demand
           deriving (Enum, Eq, Generic, Read, Show)
 
 instance NFData Rate
+instance FromJSON Rate
+instance ToJSON Rate
 
 instance Binary Rate where
   get = getWord8 >>= \case
@@ -89,7 +99,7 @@ instance Binary Rate where
     n -> fail $ "Unknown rate value: " ++ show n
   put = putWord8 . fromIntegral . fromEnum
 
-data UGen = UGen ByteString
+data UGen = UGen Text
                  Rate
                  Word16
                  (Unboxed.Vector (Int32, Word32))
@@ -97,17 +107,19 @@ data UGen = UGen ByteString
           deriving (Eq, Generic, Read, Show)
 
 instance NFData UGen
+instance FromJSON UGen
+instance ToJSON UGen
 
 instance Binary UGen where
   get = do
-    ugen <- UGen <$> getPascalString <*> get
+    ugen <- UGen <$> fmap decodeLatin1 getPascalString <*> get
     nIn <- fromIntegral <$> getWord32be
     nOut <- fromIntegral <$> getWord32be
     ugen <$> getWord16be
          <*> Unboxed.Vector.replicateM nIn (liftA2 (,) getInt32be getWord32be)
          <*> Vector.replicateM nOut get
   put (UGen n r s i o) = do
-    putPascalString n
+    putPascalString (encodeUtf8 n)
     put r
     putWord32be . fromIntegral . Unboxed.Vector.length $ i
     putWord32be . fromIntegral . Vector.length $ o
