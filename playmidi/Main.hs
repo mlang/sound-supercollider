@@ -1,18 +1,23 @@
 {-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ViewPatterns      #-}
 module Main (main) where
 
-import Control.Monad.IO.Class (liftIO)
-import           Control.Monad                    (join)
-import           Data.Ratio                       ((%))
-import qualified Sound.MIDI.File.Load             as Load
+import           Control.Concurrent.STM          (atomically)
+import           Control.Concurrent.STM.TMChan   (TMChan, readTMChan)
+import           Control.Monad                   (join)
+import           Control.Monad.IO.Class          (MonadIO (liftIO))
+import           Data.Char                       (chr)
+import           Data.Ratio                      ((%))
+import qualified Sound.MIDI.File.Load            as Load
+import           Sound.SuperCollider.Render      (play)
 import           Sound.SuperCollider.Render.MIDI (midiFile)
-import           Sound.SuperCollider.Message
-import           Sound.SuperCollider.Render
-import           Sound.SuperCollider.Server
-import           Sound.SuperCollider.SynthDef
-import           System.Environment               (getArgs)
+import           Sound.SuperCollider.Server      (receiveSynthDef, startServer,
+                                                  waitSilence, withServer)
+import           Sound.SuperCollider.SynthDef    (defaultSynthDef)
+import           System.Environment              (getArgs)
+import           System.IO                       (BufferMode (NoBuffering),
+                                                  hGetBuffering, hSetBuffering,
+                                                  stdout)
 
 main :: IO ()
 main = getArgs >>= \case
@@ -25,6 +30,19 @@ playmidi fp = withServer (startServer 57110) $ do
   join $ receiveSynthDef defaultSynthDef
   silence <- waitSilence
   (tc, ()) <- play 0.1 . midiFile =<< liftIO (Load.fromFile fp)
-  liftIO . logT =<< tc
+  showProgress =<< tc
   silence
 
+showProgress :: MonadIO m => TMChan a -> m ()
+showProgress c = liftIO $ do
+  bm <- hGetBuffering stdout
+  hSetBuffering stdout NoBuffering
+  putStr "Playing...."
+  loop (cycle "/|\\-")
+  hSetBuffering stdout bm
+ where
+  loop (x:xs) = atomically (readTMChan c) >>= \case
+    Just _ -> do
+      putStr [chr 8, x]
+      loop xs
+    Nothing -> putStrLn $ [chr 8] ++ "Done"

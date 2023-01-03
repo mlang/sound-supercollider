@@ -11,22 +11,24 @@ module Sound.SuperCollider.Render (
 , MonadRender(setTempo, plusTime)
 , later, gated
 , play
-, logT
 ) where
 
 import           Control.Concurrent                (forkIO)
 import           Control.Concurrent.Async          (waitEither, withAsync)
 import           Control.Concurrent.STM            (atomically)
 import           Control.Concurrent.STM.TChan      (readTChan)
-import           Control.Concurrent.STM.TMChan
-import           Control.Monad.Reader
-import           Control.Monad.Trans.Accum
+import           Control.Concurrent.STM.TMChan     (TMChan, closeTMChan,
+                                                    newTMChanIO, writeTMChan)
+import           Control.Monad.IO.Class            (MonadIO (..))
+import           Control.Monad.Reader              (MonadReader (ask, local),
+                                                    MonadTrans (..), void)
+import           Control.Monad.Trans.Accum         (AccumT, accum, add, look,
+                                                    looks, mapAccumT, runAccumT)
 import qualified Control.Monad.Trans.State.Lazy    as Lazy
 import qualified Control.Monad.Trans.State.Strict  as Strict
 import qualified Control.Monad.Trans.Writer.CPS    as CPS
 import qualified Control.Monad.Trans.Writer.Lazy   as Lazy
 import qualified Control.Monad.Trans.Writer.Strict as Strict
-import           Control.Monad.Writer
 import           Data.Foldable                     (Foldable (foldl', toList),
                                                     for_)
 import           Data.Function                     (on)
@@ -41,7 +43,10 @@ import           Data.Sort                         (sortBy)
 import           Sound.Osc.Fd                      (Bundle (..), Time,
                                                     sendBundle, time)
 import           Sound.SuperCollider.Message
-import           Sound.SuperCollider.Server
+import           Sound.SuperCollider.Server        (Event (Msg),
+                                                    MonadMessage (..),
+                                                    MonadServer (..), messages,
+                                                    setNodeControl, thread, udp)
 
 newtype RenderT m a = RenderT (CPS.WriterT [(Rational, Message)]
                                        (AccumT (Pos Double Rational) m) a)
@@ -91,7 +96,7 @@ instance (Monad m, MonadRender m) => MonadRender (Strict.StateT s m) where
   setTempo = lift . setTempo
   plusTime = lift . plusTime
 
-instance (Monoid w, Monad m, MonadRender m) => MonadRender (CPS.WriterT w m) where
+instance (Monad m, MonadRender m) => MonadRender (CPS.WriterT w m) where
   setTempo = lift . setTempo
   plusTime = lift . plusTime
 
@@ -126,10 +131,6 @@ play latency m = do
   for_ w $ \(t, xs) ->
     liftIO . sendBundle u . Bundle (t0 + tm (Sum t)) $ toList xs
   pure (tc, a)
-
-logT c = atomically (readTMChan c) >>= \case
-  Just t  -> print t >> logT c
-  Nothing -> pure ()
 
 timeChannel :: (Ord a, Num a, MonadServer m, MonadIO m, MonadIO n)
             => Map SynthID a -> m (n (TMChan a))

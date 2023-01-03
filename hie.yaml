@@ -1,0 +1,7 @@
+cradle:
+  stack:
+    - path: "."
+      component: "sound-supercollider:lib"
+
+    - path: "./playmidi/Main.hs"
+      component: "sound-supercollider:exe:sound-supercollider-playmidi"
