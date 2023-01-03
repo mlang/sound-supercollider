@@ -9,7 +9,7 @@
 {-# LANGUAGE UndecidableInstances       #-}
 {-# LANGUAGE ViewPatterns               #-}
 module Sound.SuperCollider.Server (
-  Server
+  Server, handles
 , startServer, stopServer
 , onServer, withServer
 , HasSuperCollider(supercollider)
@@ -32,6 +32,9 @@ import           Control.Monad.Catch          (MonadCatch, MonadMask,
                                                MonadThrow, bracket)
 import           Control.Monad.Reader
 import           Control.Monad.Trans.Accum
+import qualified Control.Monad.Trans.RWS.CPS as CPS.RWS
+import qualified Control.Monad.Trans.RWS.Lazy as Lazy.RWS
+import qualified Control.Monad.Trans.RWS.Strict as Strict.RWS
 import qualified Control.Monad.Trans.State.Lazy as Lazy
 import qualified Control.Monad.Trans.State.Strict as Strict
 import qualified Control.Monad.Trans.Writer.CPS as CPS
@@ -62,25 +65,28 @@ import           System.Process.Typed         (checkExitCode, createPipe,
 import           System.Timeout               (timeout)
 
 data Server = Server (Async ()) Udp (TChan Event) ClientID (MVar Allocator)
-                     GroupID (Server -> IO ())
+                     GroupID (Handle, Handle, Handle, Handle) (Server -> IO ())
 
 thread :: Getter Server (Async ())
-thread h s@(Server a _ _ _ _ _ _) = (const s) <$> h a
+thread h s@(Server a _ _ _ _ _ _ _) = (const s) <$> h a
 
 udp :: Getter Server Udp
-udp h s@(Server _ a _ _ _ _ _) = (const s) <$> h a
+udp h s@(Server _ a _ _ _ _ _ _) = (const s) <$> h a
 
 channel :: Getter Server (TChan Event)
-channel h s@(Server _ _ a _ _ _ _) = (const s) <$> h a
+channel h s@(Server _ _ a _ _ _ _ _) = (const s) <$> h a
 
 allocator :: Getter Server (MVar Allocator)
-allocator h s@(Server _ _ _ _ a _ _) = (const s) <$> h a
+allocator h s@(Server _ _ _ _ a _ _ _) = (const s) <$> h a
 
 defaultGroup :: Lens' Server GroupID
-defaultGroup h (Server a b c d e f g) = h f <&> \f' -> Server a b c d e f' g
+defaultGroup x (Server a b c d e f g h) = x f <&> \f' -> Server a b c d e f' g h
+
+handles :: Getter Server (Handle, Handle, Handle, Handle)
+handles x s@(Server _ _ _ _ _ _ a _) = const s <$> x a
 
 stop :: Getter Server (Server -> IO ())
-stop h s@(Server _ _ _ _ _ _ a) = (const s) <$> h a
+stop h s@(Server _ _ _ _ _ _ _ a) = (const s) <$> h a
 
 class HasSuperCollider a where
   supercollider :: Lens' a Server
@@ -126,6 +132,33 @@ instance (Monad m, MonadServer m) => MonadServer (ReaderT r m) where
   viewServer field = lift $ viewServer field
   shadow field value m = lift . shadow field value . runReaderT m =<< ask
 
+instance (Monoid w, Monad m, MonadServer m) => MonadServer (CPS.RWS.RWST r w s m) where
+  viewServer field = lift $ viewServer field
+  shadow field value m = do
+    r <- CPS.RWS.ask
+    (a, s, w) <- lift . shadow field value . CPS.RWS.runRWST m r =<< CPS.RWS.get
+    CPS.RWS.put s
+    CPS.RWS.tell w
+    pure a
+
+instance (Monoid w, Monad m, MonadServer m) => MonadServer (Lazy.RWS.RWST r w s m) where
+  viewServer field = lift $ viewServer field
+  shadow field value m = do
+    r <- Lazy.RWS.ask
+    (a, s, w) <- lift . shadow field value . Lazy.RWS.runRWST m r =<< Lazy.RWS.get
+    Lazy.RWS.put s
+    Lazy.RWS.tell w
+    pure a
+
+instance (Monoid w, Monad m, MonadServer m) => MonadServer (Strict.RWS.RWST r w s m) where
+  viewServer field = lift $ viewServer field
+  shadow field value m = do
+    r <- Strict.RWS.ask
+    (a, s, w) <- lift . shadow field value . Strict.RWS.runRWST m r =<< Strict.RWS.get
+    Strict.RWS.put s
+    Strict.RWS.tell w
+    pure a
+
 instance (Monad m, MonadServer m) => MonadServer (Lazy.StateT s m) where
   viewServer field = lift $ viewServer field
   shadow field value m = do
@@ -169,25 +202,28 @@ startServer port = liftIO $ do
     -- debug <- atomically $ dupTChan mq
     -- forkIO $ forever $ atomically (readTChan debug) >>= print
     withProcessWait (jackd 128 "hw:sofhdadsp") $ \j -> do
-      void $ readHandle JACKStdOut mq (getStdout j)
-      void $ readHandle JACKStdErr mq (getStderr j)
+--    void $ readHandle JACKStdOut mq (getStdout j)
+--    void $ readHandle JACKStdErr mq (getStderr j)
       threadDelay 300000
       withProcessWait (scsynth port 2) $ \sc -> do
-        void $ readHandle SCStdOut mq (getStdout sc)
-        void $ readHandle SCStdErr mq (getStderr sc)
+--      void $ readHandle SCStdOut mq (getStdout sc)
+--      void $ readHandle SCStdErr mq (getStderr sc)
         threadDelay 300000
         withTransport (openUdp "127.0.0.1" port) $ \t -> do
-          putMVar ok (t, mq)
+          putMVar ok (t, mq, (getStdout j, getStderr j, getStdout sc, getStderr sc))
           readMsgs t mq
         checkExitCode sc
       checkExitCode j
-  (t, mq) <- checkAsync a $ takeMVar ok
+  (t, mq, hdls) <- checkAsync a $ takeMVar ok
   c <- atomically . dupTChan $ mq
   sendMessage t $ Notify True
   (cid, logins) <- checkAsync a $ notifyReply c
   let (dgid, alloc) = allocatePermanentNodeID $ mkAllocator cid logins
   sendMessage t $ NewGroup dgid AddToTail 0
-  Server a t mq cid <$> newMVar alloc <*> pure dgid <*> pure (`onServer` quit)
+  Server a t mq cid <$> newMVar alloc
+                    <*> pure dgid
+                    <*> pure hdls
+                    <*> pure (`onServer` quit)
 
 quit :: ServerT IO ()
 quit = do
@@ -302,6 +338,7 @@ showEvents = do
   mq <- messages
   liftIO . forkIO . forever $ atomically (readTChan mq) >>= print
 
+-- allocRead :: (MonadServer m1, MonadIO m1, MonadIO m2) => BufferID -> Filename -> Sound.SuperCollider.Message.StartFrame -> Sound.SuperCollider.Message.FrameCount -> m1 (m2 ())
 allocRead id fp st c = do
   mq <- messages
   a <- viewServer thread
