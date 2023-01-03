@@ -23,6 +23,7 @@ library
   exposed-modules:
       Sound.SuperCollider.Message
       Sound.SuperCollider.Render
+      Sound.SuperCollider.Render.MIDI
       Sound.SuperCollider.Server
       Sound.SuperCollider.SynthDef
   other-modules:
