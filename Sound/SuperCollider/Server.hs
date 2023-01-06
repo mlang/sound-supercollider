@@ -9,13 +9,13 @@
 {-# LANGUAGE UndecidableInstances       #-}
 {-# LANGUAGE ViewPatterns               #-}
 module Sound.SuperCollider.Server (
-  Server, handles
+  Server, ServerT, handles
 , startServer, stopServer
 , onServer, withServer
 , HasSuperCollider(supercollider)
 , MonadServer(viewServer, shadow), thread, udp
 , MonadMessage(msg)
-, Event(..), showEvents, messages
+, messages
 , status, version, send, sync
 , receiveSynthDef, setNodeControl
 , waitSilence
@@ -64,7 +64,7 @@ import           System.Process.Typed         (checkExitCode, createPipe,
                                                withProcessWait)
 import           System.Timeout               (timeout)
 
-data Server = Server (Async ()) Udp (TChan Event) ClientID (MVar Allocator)
+data Server = Server (Async ()) Udp (TChan Message) ClientID (MVar Allocator)
                      GroupID (Handle, Handle, Handle, Handle) (Server -> IO ())
 
 thread :: Getter Server (Async ())
@@ -73,7 +73,7 @@ thread h s@(Server a _ _ _ _ _ _ _) = (const s) <$> h a
 udp :: Getter Server Udp
 udp h s@(Server _ a _ _ _ _ _ _) = (const s) <$> h a
 
-channel :: Getter Server (TChan Event)
+channel :: Getter Server (TChan Message)
 channel h s@(Server _ _ a _ _ _ _ _) = (const s) <$> h a
 
 allocator :: Getter Server (MVar Allocator)
@@ -202,12 +202,8 @@ startServer port = liftIO $ do
     -- debug <- atomically $ dupTChan mq
     -- forkIO $ forever $ atomically (readTChan debug) >>= print
     withProcessWait (jackd 128 "hw:sofhdadsp") $ \j -> do
---    void $ readHandle JACKStdOut mq (getStdout j)
---    void $ readHandle JACKStdErr mq (getStderr j)
       threadDelay 300000
       withProcessWait (scsynth port 2) $ \sc -> do
---      void $ readHandle SCStdOut mq (getStdout sc)
---      void $ readHandle SCStdErr mq (getStderr sc)
         threadDelay 300000
         withTransport (openUdp "127.0.0.1" port) $ \t -> do
           putMVar ok (t, mq, (getStdout j, getStderr j, getStdout sc, getStderr sc))
@@ -247,8 +243,8 @@ receiveSynthDef d = do
  where
   check mq = loop where
     loop = atomically (readTChan mq) >>= \case
-      Msg ReceiveSynthDefDone -> pure ()
-      _                       -> loop
+      ReceiveSynthDefDone -> pure ()
+      _                   -> loop
 
 newSynth :: ( MonadServer m, MonadMessage m, MonadIO m )
          => AddAction -> Ascii -> [(ControlIndex, ControlValue)] -> m SynthID
@@ -287,9 +283,10 @@ instance (Monoid w, Monad m, MonadMessage m) => MonadMessage (Strict.WriterT w m
 allocTempNodeID :: (MonadIO m, MonadServer m) => m NodeID
 allocTempNodeID = do
   ma <- viewServer allocator
-  (nid, a) <- liftIO $ allocateTemporaryNodeID <$> takeMVar ma
-  liftIO $ putMVar ma $! a
-  pure nid
+  liftIO $ do
+    (nid, a) <- allocateTemporaryNodeID <$> takeMVar ma
+    putMVar ma $! a
+    pure nid
 
 newGroup :: (MonadServer m, MonadMessage m, MonadIO m)
          => AddAction -> m NodeID
@@ -309,7 +306,7 @@ inGroup :: MonadServer m => GroupID -> m a -> m a
 inGroup gid = shadow defaultGroup gid
 
 cmd :: (MonadServer m, MonadIO m)
-    => Message -> (Event -> Maybe a) -> m a
+    => Message -> (Message -> Maybe a) -> m a
 cmd m f = do
   mq <- messages
   a <- viewServer thread
@@ -322,21 +319,16 @@ cmd m f = do
 version :: (MonadServer m, MonadIO m)
         => m (Ascii, Int32, Int32, Ascii, Ascii, Ascii)
 version = cmd Version $ \case
-  Msg (VersionReply name major minor patch vcbranch vchash) ->
+  VersionReply name major minor patch vcbranch vchash ->
     Just (name, major, minor, patch, vcbranch, vchash)
   _ -> Nothing
 
 status :: (MonadServer m, MonadIO m)
        => m (Int32, Int32, Int32, Int32, Float, Float, Double, Double)
 status = cmd Status $ \case
-  Msg (StatusReply ugens synths groups synthDefs al pl nsr asr) ->
+  StatusReply ugens synths groups synthDefs al pl nsr asr ->
     Just (ugens, synths, groups, synthDefs, al, pl, nsr, asr)
   _ -> Nothing
-
-showEvents :: (MonadServer m, MonadIO m) => m ThreadId
-showEvents = do
-  mq <- messages
-  liftIO . forkIO . forever $ atomically (readTChan mq) >>= print
 
 -- allocRead :: (MonadServer m1, MonadIO m1, MonadIO m2) => BufferID -> Filename -> Sound.SuperCollider.Message.StartFrame -> Sound.SuperCollider.Message.FrameCount -> m1 (m2 ())
 allocRead id fp st c = do
@@ -347,8 +339,8 @@ allocRead id fp st c = do
  where
   check mq = loop where
     loop = atomically (readTChan mq) >>= \case
-      Msg (AllocReadBufferDone id') | id == id' -> pure ()
-      _                                         -> loop
+      AllocReadBufferDone id' | id == id' -> pure ()
+      _                                   -> loop
 
 scsynth udp out =
   proc "scsynth" [
@@ -365,18 +357,6 @@ jackd buf dev =
     & setStdin nullStream
     & setStdout createPipe
     & setStderr createPipe
-
-data Event = Msg Message
-           | JACKStdOut String
-           | JACKStdErr String
-           | SCStdOut String
-           | SCStdErr String
-           deriving (Eq, Read, Show)
-
-readHandle :: (String -> Event) -> TChan Event -> Handle -> IO ThreadId
-readHandle c mq h = forkIO $ catchIOError
-  (forever $ atomically . writeTChan mq . c =<< hGetLine h) $ \e ->
-  if isEOFError e then pure () else ioError e
 
 allocatePermanentNodeID :: Allocator -> (NodeID, Allocator)
 allocatePermanentNodeID a = (permNID a, a { permNID = permNID a + 1 })
@@ -397,11 +377,11 @@ checkAsync :: MonadIO m => Async a -> IO b -> m b
 checkAsync a m = liftIO $ withAsync m $ \x -> waitEither a x >>=
   either (const $ error "processes unexpectedly exited") pure
 
-notifyReply :: TChan Event -> IO (ClientID, Int32)
+notifyReply :: TChan Message -> IO (ClientID, Int32)
 notifyReply mq = loop where
   loop = atomically (readTChan mq) >>= \case
-    Msg (NotifyReply cid logins) -> pure (cid, logins)
-    _                            -> loop
+    NotifyReply cid logins -> pure (cid, logins)
+    _                      -> loop
 
 send :: (MonadServer m, MonadIO m) => Message -> m ()
 send m = do
@@ -409,7 +389,7 @@ send m = do
   u <- viewServer udp
   checkAsync a $ sendMessage u m
 
-messages :: (MonadServer m, MonadIO m) => m (TChan Event)
+messages :: (MonadServer m, MonadIO m) => m (TChan Message)
 messages = liftIO . atomically . dupTChan =<< viewServer channel
 
 sync :: (MonadServer m, MonadIO m) => m ()
@@ -420,8 +400,8 @@ sync = do
  where
   check mq = loop where
     loop = atomically (readTChan mq) >>= \case
-      Msg (SyncReply 1) -> pure ()
-      _                 -> loop
+      SyncReply 1 -> pure ()
+      _           -> loop
 
 waitSilence :: (MonadServer m, MonadIO m, MonadIO n) => m (n ())
 waitSilence = do
@@ -433,14 +413,14 @@ waitSilence = do
     loop l x
       | x && Set.null l = pure ()
       | otherwise = atomically (readTChan mq) >>= \case
-          Msg (SynthCreated sid _ _ _) -> loop (Set.insert sid l) True
-          Msg (SynthEnded sid _ _ _)   -> loop (Set.delete sid l) x
+          SynthCreated sid _ _ _ -> loop (Set.insert sid l) True
+          SynthEnded sid _ _ _   -> loop (Set.delete sid l) x
           _                            -> loop l x
 
-readMsgs :: Transport t => t -> TChan Event -> IO ()
+readMsgs :: Transport t => t -> TChan Message -> IO ()
 readMsgs t mq = loop where
   loop = do
     ms <- recvMessages t
     for_ ms $ \case
       QuitDone -> pure ()
-      m        -> atomically (writeTChan mq $ Msg m) *> loop
+      m        -> atomically (writeTChan mq m) *> loop

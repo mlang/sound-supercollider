@@ -611,8 +611,7 @@ instance Convert [(Int32, Int32)] where
   match = matchList $ \case
     Int32 k : Int32 v : xs -> Just (xs, (k, v))
     _                      -> Nothing
-  datum = concatMap $ \case
-    (k, v) -> [Int32 k, Int32 v]
+  datum = concatMap $ \(k, v) -> [Int32 k, Int32 v]
 
 instance Convert [(Int32, Bool)] where
   match = (fmap . fmap . fmap) (> z) . match where z = 0 :: Int32
@@ -639,7 +638,7 @@ instance Convert [(ControlIndex, Int32, ControlValue)] where
     AsciiString c : Int32 n : Int32 v : xs -> Just (xs, (CName c, n, CVInt v))
     AsciiString c : Int32 n : Float v : xs -> Just (xs, (CName c, n, CVFloat v))
     _ -> Nothing
-  datum = foldMap $ \case
+  datum = concatMap $ \case
     (c, n, CVInt v)   -> [controlDatum c, Int32 n, Int32 v]
     (c, n, CVFloat v) -> [controlDatum c, Int32 n, Float v]
 

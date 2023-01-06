@@ -43,8 +43,7 @@ import           Data.Sort                         (sortBy)
 import           Sound.Osc.Fd                      (Bundle (..), Time,
                                                     sendBundle, time)
 import           Sound.SuperCollider.Message
-import           Sound.SuperCollider.Server        (Event (Msg),
-                                                    MonadMessage (..),
+import           Sound.SuperCollider.Server        ( MonadMessage (..),
                                                     MonadServer (..), messages,
                                                     setNodeControl, thread, udp)
 
@@ -149,7 +148,7 @@ timeChannel m = do
   close = atomically . closeTMChan
   go mq c = loop where
     loop t = atomically (readTChan mq) >>= \case
-      Msg (SynthCreated sid _ _ _) -> case Map.lookup sid m of
+      SynthCreated sid _ _ _ -> case Map.lookup sid m of
         Just t' | t' > t -> do
                     atomically $ writeTMChan c t'
                     if t' == endTime then close c else loop t'

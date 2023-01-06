@@ -59,6 +59,45 @@ library
     , vector
   default-language: Haskell2010
 
+executable brick-tracker
+  main-is: Main.hs
+  other-modules:
+      Tracker
+      Paths_sound_supercollider
+  hs-source-dirs:
+      brick-tracker
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  build-depends:
+      aeson
+    , async
+    , base >=4.16
+    , binary
+    , brick
+    , bytestring
+    , containers
+    , deepseq
+    , event-list
+    , exceptions
+    , groups
+    , hosc >=0.20
+    , microlens
+    , microlens-contra
+    , microlens-mtl
+    , microlens-th
+    , midi
+    , mtl
+    , nonempty-containers
+    , sort
+    , sound-supercollider
+    , stm
+    , stm-chans
+    , text
+    , transformers >=0.5.3
+    , typed-process
+    , vector
+    , vty
+  default-language: Haskell2010
+
 executable sound-supercollider-playmidi
   main-is: Main.hs
   other-modules:

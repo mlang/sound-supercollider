@@ -7,8 +7,7 @@ import           Control.Concurrent.STM.TMChan   (TMChan, readTMChan)
 import           Control.Monad                   (join)
 import           Control.Monad.IO.Class          (MonadIO (liftIO))
 import           Data.Char                       (chr)
-import           Data.Ratio                      ((%))
-import qualified Sound.MIDI.File.Load            as Load
+import qualified Sound.MIDI.File.Load            as MIDI
 import           Sound.SuperCollider.Render      (play)
 import           Sound.SuperCollider.Render.MIDI (midiFile)
 import           Sound.SuperCollider.Server      (receiveSynthDef, startServer,
@@ -29,8 +28,8 @@ playmidi :: FilePath -> IO ()
 playmidi fp = withServer (startServer 57110) $ do
   join $ receiveSynthDef defaultSynthDef
   silence <- waitSilence
-  (tc, ()) <- play 0.1 . midiFile =<< liftIO (Load.fromFile fp)
-  showProgress =<< tc
+  (p, ()) <- play 0.1 . midiFile =<< liftIO (MIDI.fromFile fp)
+  showProgress =<< p
   silence
 
 showProgress :: MonadIO m => TMChan a -> m ()
@@ -38,7 +37,7 @@ showProgress c = liftIO $ do
   bm <- hGetBuffering stdout
   hSetBuffering stdout NoBuffering
   putStr "Playing...."
-  loop (cycle "/|\\-")
+  loop $ cycle "/|\\-"
   hSetBuffering stdout bm
  where
   loop (x:xs) = atomically (readTMChan c) >>= \case

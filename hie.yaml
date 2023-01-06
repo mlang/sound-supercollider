@@ -2,6 +2,7 @@ cradle:
   stack:
     - path: "."
       component: "sound-supercollider:lib"
-
-    - path: "./playmidi/Main.hs"
+    - path: "./playmidi"
       component: "sound-supercollider:exe:sound-supercollider-playmidi"
+    - path: "./brick-tracker"
+      component: "sound-supercollider:exe:brick-tracker"
