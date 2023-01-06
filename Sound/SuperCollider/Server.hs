@@ -55,8 +55,7 @@ import           Sound.Osc.Fd                 (Ascii, Transport, Udp, openUdp,
                                                withTransport)
 import           Sound.SuperCollider.Message
 import           Sound.SuperCollider.SynthDef
-import           System.IO                    (Handle, hGetLine)
-import           System.IO.Error              (catchIOError, isEOFError)
+import           System.IO                    (Handle)
 import           System.Process.Typed         (checkExitCode, createPipe,
                                                getStderr, getStdout, nullStream,
                                                proc, setEnv, setStderr,

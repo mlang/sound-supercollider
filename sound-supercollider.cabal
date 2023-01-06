@@ -62,6 +62,7 @@ library
 executable brick-tracker
   main-is: Main.hs
   other-modules:
+      Brick.Extra
       Tracker
       Paths_sound_supercollider
   hs-source-dirs:
