@@ -40,8 +40,9 @@ showProgress c = liftIO $ do
   loop $ cycle "/|\\-"
   hSetBuffering stdout bm
  where
+  loop [] = putStrLn $ [chr 8] ++ "Done"
   loop (x:xs) = atomically (readTMChan c) >>= \case
     Just _ -> do
       putStr [chr 8, x]
       loop xs
-    Nothing -> putStrLn $ [chr 8] ++ "Done"
+    Nothing -> loop []

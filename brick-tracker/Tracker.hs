@@ -1,13 +1,13 @@
-{-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE PatternSynonyms     #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell     #-}
 module Tracker (tracker, AppState) where
 
 import           Brick.AttrMap                 (attrMap)
+import Control.Monad.Reader (Reader, runReader)
 import           Brick.BChan                   (BChan, newBChan, writeBChan)
 import           Brick.Extra                   (renderBottomUp)
 import           Brick.Focus                   (FocusRing)
@@ -16,26 +16,23 @@ import           Brick.Main                    (App (..), customMain, halt,
                                                 showFirstCursor)
 import           Brick.Types                   (BrickEvent (AppEvent, VtyEvent),
                                                 EventM,
-                                                Result (image), Size (Greedy),
-                                                Widget (Widget))
+                                                Widget)
 import           Brick.Widgets.Border          (hBorder)
-import           Brick.Widgets.Core            (fill, txt, (<=>))
+import           Brick.Widgets.Core            (fill, str, txt, (<=>))
 import           Control.Concurrent            (ThreadId, forkIO)
 import           Control.Concurrent.STM        (atomically)
 import           Control.Concurrent.STM.TChan  (readTChan)
 import           Control.Concurrent.STM.TMChan (TMChan)
-import           Control.Monad                 (forever, join, void)
+import           Control.Monad                 (forever, void)
 import           Control.Monad.Catch           (MonadMask)
 import           Control.Monad.IO.Class        (MonadIO (..))
-import           Data.Text                     (Text, pack)
+import           Data.Text                     (Text)
 import           Data.Text.IO                  (hGetLine)
-import           Graphics.Vty                  as Vty (Event (EvKey),
-                                                       Key (KChar),
-                                                       Modifier (MCtrl), Vty,
+import           Graphics.Vty                  as Vty (Vty,
                                                        defAttr, defaultConfig,
                                                        mkVty)
-import           Lens.Micro                    ((^.))
-import           Lens.Micro.Mtl                (use, (%=))
+import           Graphics.Vty.Patterns         (pattern Key)
+import           Lens.Micro.Mtl                (view, use, (%=))
 import           Lens.Micro.TH                 (makeLenses)
 import           Sound.SuperCollider.Message   (AddAction (AddToTail), Message)
 import           Sound.SuperCollider.Render    (RenderT, gated, play)
@@ -55,24 +52,29 @@ data AppEvent = SynthOutput Text
 
 type WidgetName = ()
 
-data AppState = State {
-  _synthesizer :: Server
-, _synthOutput :: [Text]
-, _focusRing   :: FocusRing WidgetName
+data AppState e n = State {
+  _synthesizer  :: !Server
+, _brickChannel :: !(BChan e)
+, _synthOutput  :: [Widget n]
+, _focusRing    :: !(FocusRing n)
 }
 
 makeLenses ''AppState
 
-appState :: Server -> AppState
-appState s = State s [] (FocusRing.focusRing [])
+appState :: BChan e -> Server -> AppState e WidgetName
+appState c s = State s c [] (FocusRing.focusRing [])
 
-instance HasSuperCollider AppState where
-  supercollider = synthesizer
+instance HasSuperCollider (AppState e n) where supercollider = synthesizer
 
 sound :: ServerT AppM a -> AppM a
 sound x = (`onServer` x) =<< use supercollider
 
-type AppM = EventM WidgetName AppState
+type AppM = EventM WidgetName (AppState AppEvent WidgetName)
+
+draw :: Reader (AppState AppEvent WidgetName) [Widget WidgetName]
+draw = do
+  sLog <- renderBottomUp <$> view synthOutput
+  pure . pure $ fill ' ' <=> hBorder <=> sLog
 
 buildVty :: IO Vty
 buildVty = Vty.mkVty Vty.defaultConfig
@@ -80,16 +82,8 @@ buildVty = Vty.mkVty Vty.defaultConfig
 welcome :: RenderT (ServerT AppM) ()
 welcome = void $ gated 1 $ newSynth AddToTail "default" [("freq", 440)]
 
-pattern Key :: String -> Vty.Event
-pattern Key k <- (matchKey -> Just k)
-
-matchKey :: Vty.Event -> Maybe String
-matchKey = \case
-  Vty.EvKey (Vty.KChar k) [Vty.MCtrl] -> Just $ 'C' : '-' : k : ""
-  _ -> Nothing
-
-tracker :: (MonadIO m, MonadMask m) => m AppState
-tracker = withServer (startServer 57110) $ do
+tracker :: (MonadIO m, MonadMask m) => Int -> m (AppState AppEvent WidgetName)
+tracker port = withServer (startServer port) $ do
   (ha, hb, hc, hd) <- viewServer handles
   mq <- messages
   c <- liftIO $ newBChan 128
@@ -102,17 +96,17 @@ tracker = withServer (startServer 57110) $ do
   catchup <- receiveSynthDef defaultSynthDef
   vty <- liftIO buildVty
   catchup
-  liftIO . customMain vty buildVty (Just c) app . appState =<< viewServer id
+  liftIO . customMain vty buildVty (Just c) app . appState c =<< viewServer id
  where
   app = App { .. } where
     appStartEvent = sound $ play_ welcome
-    appDraw s = [panel] where
-      panel = fill ' ' <=> hBorder <=> synthLog
-      synthLog = renderBottomUp $ txt <$> s ^. synthOutput
+    appDraw = runReader draw
     appHandleEvent = \case
-      AppEvent (SynthOutput x) -> synthOutput %= (x :)
-      VtyEvent (Key "C-q") -> halt
-      x -> synthOutput %= (pack (show x) :)
+      AppEvent (SynthOutput x) -> synthOutput %= (txt x :)
+      VtyEvent (Key "C-M-q")   -> halt
+      VtyEvent (Key "a")       -> sound . play_ . void . gated 1 $
+        newSynth AddToTail "default" [("freq", 440)]
+      x                        -> synthOutput %= (str (show x) :)
     appChooseCursor = showFirstCursor
     appAttrMap = const $ attrMap Vty.defAttr []
 

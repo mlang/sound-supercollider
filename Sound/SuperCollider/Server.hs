@@ -351,7 +351,7 @@ scsynth udp out =
 
 jackd buf dev =
   proc "jackd" [
-    "-T", "-d", "alsa", "-P", "-p", show buf, "-d", dev
+    "-R", "-T", "-d", "alsa", "-P", "-p", show buf, "-d", dev
   ] & setEnv [("JACK_NO_AUDIO_RESERVATION", "1")]
     & setStdin nullStream
     & setStdout createPipe

@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE DeriveLift                 #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE OverloadedLists            #-}
@@ -8,30 +9,37 @@ module Sound.SuperCollider.SynthDef (
   SynthDef(..), GraphDef(..), UGen(..), defaultSynthDef
 ) where
 
-import           Control.Applicative (Applicative (liftA2))
-import           Control.DeepSeq     (NFData)
-import           Control.Monad       (replicateM)
-import           Data.Aeson          (FromJSON, ToJSON)
-import           Data.Binary         (Binary (get, put))
-import           Data.Binary.Get
-import           Data.Binary.Put
-import           Data.ByteString     (ByteString)
-import qualified Data.ByteString     as ByteString (length)
-import           Data.Foldable       (for_)
-import           Data.Int            (Int32)
-import           Data.Text           (Text)
-import           Data.Text.Encoding  (decodeLatin1, decodeUtf8, encodeUtf8)
-import           Data.Vector         (Vector)
-import qualified Data.Vector         as Vector (length, replicateM)
-import           Data.Vector.Unboxed (Unbox)
-import qualified Data.Vector.Unboxed as Unboxed (Vector)
-import qualified Data.Vector.Unboxed as Unboxed.Vector (forM_, length,
-                                                        replicateM)
-import           Data.Word           (Word16, Word32)
-import           GHC.Generics        (Generic)
+import           Control.Applicative        (Applicative (liftA2))
+import           Control.DeepSeq            (NFData)
+import           Control.Monad              (replicateM)
+import           Data.Aeson                 (FromJSON, ToJSON)
+import           Data.Binary                (Binary (get, put))
+import           Data.Binary.Get            (Get, getByteString, getFloatbe,
+                                             getInt16be, getInt32be,
+                                             getWord16be, getWord32be, getWord8)
+import           Data.Binary.Put            (Put, putByteString, putFloatbe,
+                                             putInt32be, putWord16be,
+                                             putWord32be, putWord8)
+import           Data.ByteString            (ByteString)
+import qualified Data.ByteString            as ByteString (length)
+import           Data.Foldable              (for_)
+import           Data.Int                   (Int32)
+import           Data.Text                  (Text)
+import           Data.Text.Encoding         (decodeLatin1, decodeUtf8,
+                                             encodeUtf8)
+import           Data.Vector                (Vector)
+import qualified Data.Vector                as Vector (length, replicateM)
+import           Data.Vector.Unboxed        (Unbox)
+import qualified Data.Vector.Unboxed        as Unboxed (Vector)
+import qualified Data.Vector.Unboxed        as Unboxed.Vector (forM_, length,
+                                                               replicateM)
+import           Data.Word                  (Word16, Word32)
+import           GHC.Generics               (Generic)
+import           Instances.TH.Lift          ()
+import           Language.Haskell.TH.Syntax (Lift)
 
 newtype SynthDef = SynthDef [GraphDef]
-                 deriving (Eq, Generic, NFData, Read, Semigroup, Show)
+                 deriving (Eq, Generic, Lift, NFData, Read, Semigroup, Show)
 
 instance FromJSON SynthDef
 instance ToJSON SynthDef
@@ -53,7 +61,7 @@ data GraphDef = GraphDef Text
                          [(Text, Int32)]
                          (Vector UGen)
                          [(Text, Unboxed.Vector Float)]
-              deriving (Eq, Generic, Read, Show)
+              deriving (Eq, Generic, Read, Show, Lift)
 
 instance NFData GraphDef
 instance FromJSON GraphDef
@@ -84,7 +92,7 @@ instance Binary GraphDef where
       Unboxed.Vector.forM_ vcd putFloatbe
 
 data Rate = Scalar | Control | Audio | Demand
-          deriving (Enum, Eq, Generic, Read, Show)
+          deriving (Bounded, Enum, Eq, Generic, Read, Show, Lift)
 
 instance NFData Rate
 instance FromJSON Rate
@@ -104,7 +112,7 @@ data UGen = UGen Text
                  Word16
                  (Unboxed.Vector (Int32, Word32))
                  (Vector Rate)
-          deriving (Eq, Generic, Read, Show)
+          deriving (Eq, Generic, Read, Show, Lift)
 
 instance NFData UGen
 instance FromJSON UGen

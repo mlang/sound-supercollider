@@ -30,7 +30,7 @@ library
       Paths_sound_supercollider
   hs-source-dirs:
       ./
-  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -split-sections
   build-depends:
       aeson
     , async
@@ -53,7 +53,9 @@ library
     , sort
     , stm
     , stm-chans
+    , template-haskell
     , text
+    , th-lift-instances
     , transformers >=0.5.3
     , typed-process
     , vector
@@ -63,11 +65,13 @@ executable brick-tracker
   main-is: Main.hs
   other-modules:
       Brick.Extra
+      Graphics.Vty.Patterns
+      PairList
       Tracker
       Paths_sound_supercollider
   hs-source-dirs:
       brick-tracker
-  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -split-sections -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson
     , async
@@ -92,7 +96,9 @@ executable brick-tracker
     , sound-supercollider
     , stm
     , stm-chans
+    , template-haskell
     , text
+    , th-lift-instances
     , transformers >=0.5.3
     , typed-process
     , vector
@@ -105,7 +111,7 @@ executable sound-supercollider-playmidi
       Paths_sound_supercollider
   hs-source-dirs:
       playmidi
-  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -split-sections -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       aeson
     , async
@@ -129,7 +135,9 @@ executable sound-supercollider-playmidi
     , sound-supercollider
     , stm
     , stm-chans
+    , template-haskell
     , text
+    , th-lift-instances
     , transformers >=0.5.3
     , typed-process
     , vector

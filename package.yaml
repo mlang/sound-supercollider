@@ -30,6 +30,8 @@ dependencies:
 - sort
 - stm
 - stm-chans
+- th-lift-instances
+- template-haskell
 - text
 - transformers >= 0.5.3
 - typed-process
@@ -45,6 +47,7 @@ ghc-options:
 - -Wmissing-home-modules
 - -Wpartial-fields
 - -Wredundant-constraints
+- -split-sections
 
 library:
   source-dirs: .
