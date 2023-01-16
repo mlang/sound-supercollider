@@ -7,16 +7,14 @@
 module Tracker (tracker, AppState) where
 
 import           Brick.AttrMap                 (attrMap)
-import Control.Monad.Reader (Reader, runReader)
 import           Brick.BChan                   (BChan, newBChan, writeBChan)
 import           Brick.Extra                   (renderBottomUp)
-import           Brick.Focus                   (FocusRing)
+import           Brick.Focus                   (FocusRing, focusGetCurrent)
 import qualified Brick.Focus                   as FocusRing
 import           Brick.Main                    (App (..), customMain, halt,
                                                 showFirstCursor)
 import           Brick.Types                   (BrickEvent (AppEvent, VtyEvent),
-                                                EventM,
-                                                Widget)
+                                                EventM, Widget)
 import           Brick.Widgets.Border          (hBorder)
 import           Brick.Widgets.Core            (fill, str, txt, (<=>))
 import           Control.Concurrent            (ThreadId, forkIO)
@@ -26,14 +24,15 @@ import           Control.Concurrent.STM.TMChan (TMChan)
 import           Control.Monad                 (forever, void)
 import           Control.Monad.Catch           (MonadMask)
 import           Control.Monad.IO.Class        (MonadIO (..))
+import           Control.Monad.Reader          (Reader, runReader)
 import           Data.Text                     (Text)
 import           Data.Text.IO                  (hGetLine)
-import           Graphics.Vty                  as Vty (Vty,
-                                                       defAttr, defaultConfig,
-                                                       mkVty)
+import           Graphics.Vty                  as Vty (Vty, defAttr,
+                                                       defaultConfig, mkVty)
 import           Graphics.Vty.Patterns         (pattern Key)
-import           Lens.Micro.Mtl                (view, use, (%=))
+import           Lens.Micro.Mtl                (use, view, zoom, (%=))
 import           Lens.Micro.TH                 (makeLenses)
+import           Pianoroll
 import           Sound.SuperCollider.Message   (AddAction (AddToTail), Message)
 import           Sound.SuperCollider.Render    (RenderT, gated, play)
 import           Sound.SuperCollider.Server    (HasSuperCollider (..),
@@ -50,19 +49,20 @@ data AppEvent = SynthOutput Text
               | OSC Message
               deriving (Eq, Read, Show)
 
-type WidgetName = ()
+data WidgetName = Pianoroll deriving (Eq, Ord, Show, Read)
 
 data AppState e n = State {
   _synthesizer  :: !Server
 , _brickChannel :: !(BChan e)
 , _synthOutput  :: [Widget n]
 , _focusRing    :: !(FocusRing n)
+, _pianoroll    :: Pianoroll
 }
 
 makeLenses ''AppState
 
 appState :: BChan e -> Server -> AppState e WidgetName
-appState c s = State s c [] (FocusRing.focusRing [])
+appState c s = State s c [] (FocusRing.focusRing [Pianoroll]) defaultPianoroll
 
 instance HasSuperCollider (AppState e n) where supercollider = synthesizer
 
@@ -70,11 +70,16 @@ sound :: ServerT AppM a -> AppM a
 sound x = (`onServer` x) =<< use supercollider
 
 type AppM = EventM WidgetName (AppState AppEvent WidgetName)
+type Draw = Reader (AppState AppEvent WidgetName)
 
-draw :: Reader (AppState AppEvent WidgetName) [Widget WidgetName]
+isFocused :: WidgetName -> Draw Bool
+isFocused n = (== Just n) . focusGetCurrent <$> view focusRing
+
+draw :: Draw [Widget WidgetName]
 draw = do
+  roll <- renderPianoroll Pianoroll <$> view pianoroll <*> isFocused Pianoroll
   sLog <- renderBottomUp <$> view synthOutput
-  pure . pure $ fill ' ' <=> hBorder <=> sLog
+  pure . pure $ roll <=> hBorder <=> sLog
 
 buildVty :: IO Vty
 buildVty = Vty.mkVty Vty.defaultConfig
@@ -106,7 +111,9 @@ tracker port = withServer (startServer port) $ do
       VtyEvent (Key "C-M-q")   -> halt
       VtyEvent (Key "a")       -> sound . play_ . void . gated 1 $
         newSynth AddToTail "default" [("freq", 440)]
-      x                        -> synthOutput %= (str (show x) :)
+      e                        -> focusGetCurrent <$> use focusRing >>= \case
+        Just Pianoroll -> zoom pianoroll $ handlePianorollEvent e
+        Nothing        -> synthOutput %= (str "No focus" :)
     appChooseCursor = showFirstCursor
     appAttrMap = const $ attrMap Vty.defAttr []
 

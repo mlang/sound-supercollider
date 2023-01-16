@@ -65,9 +65,12 @@ executable brick-tracker
   main-is: Main.hs
   other-modules:
       Brick.Extra
+      EventList
       Graphics.Vty.Patterns
       PairList
+      Pianoroll
       Tracker
+      Types
       Paths_sound_supercollider
   hs-source-dirs:
       brick-tracker

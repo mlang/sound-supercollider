@@ -1,8 +1,6 @@
-resolver: nightly-2023-01-14
+resolver: nightly-2023-01-15
 packages:
 - .
-extra-deps:
-- hosc-0.20
 flags:
   brick:
     demos: false
