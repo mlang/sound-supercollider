@@ -9,14 +9,16 @@ module Tracker (tracker, AppState) where
 import           Brick.AttrMap                 (attrMap)
 import           Brick.BChan                   (BChan, newBChan, writeBChan)
 import           Brick.Extra                   (renderBottomUp)
-import           Brick.Focus                   (FocusRing, focusGetCurrent)
+import           Brick.Focus                   (FocusRing, focusGetCurrent,
+                                                focusNext)
 import qualified Brick.Focus                   as FocusRing
 import           Brick.Main                    (App (..), customMain, halt,
                                                 showFirstCursor)
 import           Brick.Types                   (BrickEvent (AppEvent, VtyEvent),
                                                 EventM, Widget)
 import           Brick.Widgets.Border          (hBorder)
-import           Brick.Widgets.Core            (fill, str, txt, (<=>))
+import           Brick.Widgets.Core            (str, txt, (<=>), joinBorders)
+import           Control.Applicative           (Applicative (liftA2))
 import           Control.Concurrent            (ThreadId, forkIO)
 import           Control.Concurrent.STM        (atomically)
 import           Control.Concurrent.STM.TChan  (readTChan)
@@ -41,7 +43,7 @@ import           Sound.SuperCollider.Server    (HasSuperCollider (..),
                                                 messages, newSynth, onServer,
                                                 receiveSynthDef, startServer,
                                                 withServer)
-import           Sound.SuperCollider.SynthDef  (defaultSynthDef)
+import           Sound.SuperCollider.SynthDef.Builtin  (def)
 import           System.IO                     (Handle)
 import           System.IO.Error               (catchIOError, isEOFError)
 
@@ -49,7 +51,7 @@ data AppEvent = SynthOutput Text
               | OSC Message
               deriving (Eq, Read, Show)
 
-data WidgetName = Pianoroll deriving (Eq, Ord, Show, Read)
+data WidgetName = PianorollLabels | Pianoroll deriving (Eq, Ord, Show, Read)
 
 data AppState e n = State {
   _synthesizer  :: !Server
@@ -77,9 +79,10 @@ isFocused n = (== Just n) . focusGetCurrent <$> view focusRing
 
 draw :: Draw [Widget WidgetName]
 draw = do
-  roll <- renderPianoroll Pianoroll <$> view pianoroll <*> isFocused Pianoroll
+  roll <- liftA2 (renderPianoroll PianorollLabels Pianoroll) (view pianoroll) (isFocused Pianoroll)
   sLog <- renderBottomUp <$> view synthOutput
-  pure . pure $ roll <=> hBorder <=> sLog
+  let panel = joinBorders $ roll <=> hBorder <=> sLog
+  pure $ [panel]
 
 buildVty :: IO Vty
 buildVty = Vty.mkVty Vty.defaultConfig
@@ -98,7 +101,7 @@ tracker port = withServer (startServer port) $ do
   void $ readHandle SynthOutput c hb
   void $ readHandle SynthOutput c hc
   void $ readHandle SynthOutput c hd
-  catchup <- receiveSynthDef defaultSynthDef
+  catchup <- receiveSynthDef def
   vty <- liftIO buildVty
   catchup
   liftIO . customMain vty buildVty (Just c) app . appState c =<< viewServer id
@@ -108,10 +111,13 @@ tracker port = withServer (startServer port) $ do
     appDraw = runReader draw
     appHandleEvent = \case
       AppEvent (SynthOutput x) -> synthOutput %= (txt x :)
-      VtyEvent (Key "C-M-q")   -> halt
-      VtyEvent (Key "a")       -> sound . play_ . void . gated 1 $
-        newSynth AddToTail "default" [("freq", 440)]
-      e                        -> focusGetCurrent <$> use focusRing >>= \case
+      VtyEvent (Key "TAB")   -> focusRing %= focusNext
+      VtyEvent (Key "C-M-q") -> halt
+      VtyEvent (Key "RET")   -> do
+        freq <- getPitch <$> use pianoroll
+        sound . play_ . void . gated 1 $
+          newSynth AddToTail "default" [("freq", freq)]
+      e                      -> focusGetCurrent <$> use focusRing >>= \case
         Just Pianoroll -> zoom pianoroll $ handlePianorollEvent e
         Nothing        -> synthOutput %= (str "No focus" :)
     appChooseCursor = showFirstCursor

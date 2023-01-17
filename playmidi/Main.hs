@@ -12,7 +12,7 @@ import           Sound.SuperCollider.Render      (play)
 import           Sound.SuperCollider.Render.MIDI (midiFile)
 import           Sound.SuperCollider.Server      (receiveSynthDef, startServer,
                                                   waitSilence, withServer)
-import           Sound.SuperCollider.SynthDef    (defaultSynthDef)
+import           Sound.SuperCollider.SynthDef.Builtin    (def)
 import           System.Environment              (getArgs)
 import           System.IO                       (BufferMode (NoBuffering),
                                                   hGetBuffering, hSetBuffering,
@@ -26,7 +26,7 @@ main = getArgs >>= \case
 
 playmidi :: FilePath -> IO ()
 playmidi fp = withServer (startServer 57110) $ do
-  join $ receiveSynthDef defaultSynthDef
+  join $ receiveSynthDef def
   silence <- waitSilence
   (p, ()) <- play 0.1 . midiFile =<< liftIO (MIDI.fromFile fp)
   showProgress =<< p

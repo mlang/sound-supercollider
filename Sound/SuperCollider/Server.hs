@@ -14,6 +14,7 @@ module Sound.SuperCollider.Server (
 , onServer, withServer
 , HasSuperCollider(supercollider)
 , MonadServer(viewServer, shadow), thread, udp
+, allocBufferID
 , MonadMessage(msg)
 , messages
 , status, version, send, sync
@@ -200,7 +201,7 @@ startServer port = liftIO $ do
     mq <- newBroadcastTChanIO
     -- debug <- atomically $ dupTChan mq
     -- forkIO $ forever $ atomically (readTChan debug) >>= print
-    withProcessWait (jackd 128 "hw:sofhdadsp") $ \j -> do
+    withProcessWait (jackd 256 "hw:sofhdadsp") $ \j -> do
       threadDelay 300000
       withProcessWait (scsynth port 2) $ \sc -> do
         threadDelay 300000
@@ -287,6 +288,15 @@ allocTempNodeID = do
     putMVar ma $! a
     pure nid
 
+
+allocBufferID :: (MonadIO m, MonadServer m) => m BufferID
+allocBufferID = do
+  ma <- viewServer allocator
+  liftIO $ do
+    (bid, a) <- allocateBufferID <$> takeMVar ma
+    putMVar ma $! a
+    pure bid
+
 newGroup :: (MonadServer m, MonadMessage m, MonadIO m)
          => AddAction -> m NodeID
 newGroup aa = do
@@ -363,13 +373,20 @@ allocatePermanentNodeID a = (permNID a, a { permNID = permNID a + 1 })
 allocateTemporaryNodeID :: Allocator -> (NodeID, Allocator)
 allocateTemporaryNodeID a = (tempNID a, a { tempNID = tempNID a + 1 })
 
+allocateBufferID :: Allocator -> (BufferID, Allocator)
+allocateBufferID a = (result, alloca) where
+  result | null $ bufIDs a = error "Out of buffers"
+         | otherwise = head $ bufIDs a
+  alloca = a { bufIDs = tail $ bufIDs a }
+
 mkAllocator :: ClientID -> Int32 -> Allocator
-mkAllocator (ClientID cid) maxLogins = Allocator (r + 1) (r + 1000) where
+mkAllocator (ClientID cid) maxLogins = Allocator (r + 1) (r + 1000) [0 .. 1023] where
   r = cid `shiftL` 26
 
 data Allocator = Allocator {
   permNID :: NodeID
 , tempNID :: NodeID
+, bufIDs :: [BufferID]
 } deriving (Eq, Read, Show)
 
 checkAsync :: MonadIO m => Async a -> IO b -> m b

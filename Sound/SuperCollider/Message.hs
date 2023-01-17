@@ -68,6 +68,7 @@ module Sound.SuperCollider.Message (
   , pattern AllocReadBuffer, pattern AllocReadBufferThen
   ,         allocReadBuffer,         allocReadBufferThen
   , pattern AllocReadBufferDone
+  , pattern RequestBufferInfo, pattern BufferInfo
   , Message
   ( Message
   , Done
@@ -120,9 +121,11 @@ boolDatum = Int32 . bool 0 1
 pattern Notify :: Bool -> Message
 pattern Notify flag <- Message "/notify" [Int32 (isOn -> flag)] where
   Notify flag = Message "/notify" [boolDatum flag]
+
 pattern NotifyWithID :: Bool -> ClientID -> Message
 pattern NotifyWithID flag clientID <- Message "/notify" [Int32 (isOn -> flag), Int32 (ClientID -> clientID)] where
   NotifyWithID flag clientID = Message "/notify" [boolDatum flag, Int32 (unClientID clientID)]
+
 pattern NotifyReply :: ClientID -> Int32 -> Message
 pattern NotifyReply clientID maxLogins <- Done [AsciiString "/notify", Int32 (ClientID -> clientID), Int32 maxLogins] where
   NotifyReply clientID maxLogins = Done [AsciiString "/notify", Int32 (unClientID clientID), Int32 maxLogins]
@@ -501,6 +504,17 @@ pattern AllocateBufferThen :: BufferIndex -> FrameCount -> ChannelCount -> Messa
 pattern AllocateBufferThen bid nframes chans msg <- Message "/b_alloc" [Int32 bid, Int32 nframes, Int32 chans, Blob (decodeMessage -> msg)] where
   AllocateBufferThen bid nframes chans msg = Message "/b_alloc" [Int32 bid , Int32 nframes, Int32 chans, Blob (encodeMessage msg)]
 
+-- | Get buffer info.
+pattern RequestBufferInfo :: [BufferIndex] -> Message
+pattern RequestBufferInfo bids <- Message "/b_query" (match -> Just bids) where
+  RequestBufferInfo bids = Message "/b_query" $ datum bids
+
+type SampleRate = Float
+
+pattern BufferInfo :: [(BufferIndex, FrameCount, ChannelCount, SampleRate)] -> Message
+pattern BufferInfo xs <- Message "b/b_info" (match -> Just xs) where
+  BufferInfo xs = Message "b/b_info" $ datum xs
+
 type SynthDefName = Ascii
 type SynthID = NodeID
 
@@ -616,6 +630,12 @@ instance Convert [(Int32, Int32)] where
 instance Convert [(Int32, Bool)] where
   match = (fmap . fmap . fmap) (> z) . match where z = 0 :: Int32
   datum = datum . (fmap . fmap) (bool 0 1 :: Bool -> Int32)
+
+instance Convert [(Int32, Int32, Int32, Float)] where
+  match = matchList $ \case
+    Int32 a : Int32 b : Int32 c : Float d : xs -> Just (xs, (a, b, c, d))
+    _                      -> Nothing
+  datum = concatMap $ \(a, b, c, d) -> [Int32 a, Int32 b, Int32 c, Float d]
 
 instance Convert [(ControlIndex, Int32)] where
   match = matchList $ \case
