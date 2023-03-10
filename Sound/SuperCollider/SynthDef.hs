@@ -137,6 +137,7 @@ instance Binary UGen where
       putWord32be b
     for_ o put
 
+
 -- -----------------------------------------------------------------------------
 
 getPascalString :: Get ByteString

@@ -2,7 +2,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module Main (main) where
 
-import Text.Pretty.Simple (pPrintNoColor)
 import           Data.Binary
 import           Data.Foldable                (for_)
 import           Data.Function                ((&))
@@ -12,7 +11,6 @@ import           System.Process.Typed
 build = proc "sclang" []
       & setStdin (byteStringInput "\"SynthDefs.scd\".load")
       & setStdout nullStream
-
 
 main :: IO ()
 main = do
@@ -28,4 +26,3 @@ main = do
     putStrLn $ fn ++ " :: SynthDef"
     putStrLn $ fn ++ " = " ++ show def
     putStrLn ""
-

@@ -77,7 +77,7 @@ module Sound.SuperCollider.Message (
 , DumpMode(NoDump, DumpParsed, DumpHex, DumpParsedAndHex)
 , AddAction(AddToHead, AddToTail, Before, After, Replace)
 , pattern DefaultGroup
-, ClientID(..), NodeID, GroupID, SynthID, Filename
+, ClientID(..), NodeID, GroupID, SynthID, Filename, StartFrame, FrameCount
 ) where
 
 import           Control.DeepSeq              (NFData)
@@ -512,7 +512,7 @@ pattern RequestBufferInfo bids <- Message "/b_query" (match -> Just bids) where
 type SampleRate = Float
 
 pattern BufferInfo :: [(BufferIndex, FrameCount, ChannelCount, SampleRate)] -> Message
-pattern BufferInfo xs <- Message "b/b_info" (match -> Just xs) where
+pattern BufferInfo xs <- Message "/b_info" (match -> Just xs) where
   BufferInfo xs = Message "b/b_info" $ datum xs
 
 type SynthDefName = Ascii

@@ -20,51 +20,54 @@ module Sound.SuperCollider.Server (
 , status, version, send, sync
 , receiveSynthDef, setNodeControl
 , waitSilence
-, newGroup, newSynth, inGroup
+, newGroup, newSynth, inGroup, readBuffer
 ) where
-import           Brick.Types                  (EventM)
-import           Control.Concurrent           (MVar, ThreadId, forkIO,
-                                               newEmptyMVar, newMVar, putMVar,
-                                               takeMVar, threadDelay)
+import           Brick.Types                       (EventM)
+import           Control.Concurrent                (MVar, ThreadId, forkIO,
+                                                    newEmptyMVar, newMVar,
+                                                    putMVar, takeMVar,
+                                                    threadDelay)
 import           Control.Concurrent.Async
-import           Control.Concurrent.STM       (atomically)
+import           Control.Concurrent.STM            (atomically)
 import           Control.Concurrent.STM.TChan
-import           Control.Monad.Catch          (MonadCatch, MonadMask,
-                                               MonadThrow, bracket)
+import           Control.Monad.Catch               (MonadCatch, MonadMask,
+                                                    MonadThrow, bracket)
 import           Control.Monad.Reader
 import           Control.Monad.Trans.Accum
-import qualified Control.Monad.Trans.RWS.CPS as CPS.RWS
-import qualified Control.Monad.Trans.RWS.Lazy as Lazy.RWS
-import qualified Control.Monad.Trans.RWS.Strict as Strict.RWS
-import qualified Control.Monad.Trans.State.Lazy as Lazy
-import qualified Control.Monad.Trans.State.Strict as Strict
-import qualified Control.Monad.Trans.Writer.CPS as CPS
-import qualified Control.Monad.Trans.Writer.Lazy as Lazy
+import qualified Control.Monad.Trans.RWS.CPS       as CPS.RWS
+import qualified Control.Monad.Trans.RWS.Lazy      as Lazy.RWS
+import qualified Control.Monad.Trans.RWS.Strict    as Strict.RWS
+import qualified Control.Monad.Trans.State.Lazy    as Lazy
+import qualified Control.Monad.Trans.State.Strict  as Strict
+import qualified Control.Monad.Trans.Writer.CPS    as CPS
+import qualified Control.Monad.Trans.Writer.Lazy   as Lazy
 import qualified Control.Monad.Trans.Writer.Strict as Strict
-import           Data.Bits                    (shiftL)
-import           Data.Foldable                (for_)
-import           Data.Function                ((&))
-import           Data.Functor                 ((<&>))
-import           Data.Int                     (Int32)
-import qualified Data.Set                     as Set (delete, empty, insert,
-                                                      null)
-import           Lens.Micro                   (Lens', (.~))
+import           Data.Bits                         (shiftL)
+import           Data.Foldable                     (for_)
+import           Data.Function                     ((&))
+import           Data.Functor                      ((<&>))
+import           Data.Int                          (Int32)
+import           Data.IORef                        (IORef, atomicModifyIORef',
+                                                    newIORef)
+import qualified Data.Set                          as Set (delete, empty,
+                                                           insert, null)
+import           Lens.Micro                        (Lens', (.~))
 import           Lens.Micro.Contra
-import           Lens.Micro.Mtl               (use, view, (.=))
-import           Sound.Osc.Fd                 (Ascii, Transport, Udp, openUdp,
-                                               recvMessages, sendMessage,
-                                               withTransport)
+import           Lens.Micro.Mtl                    (use, view, (.=))
+import           Sound.Osc.Fd                      (Ascii, Transport, Udp,
+                                                    openUdp, recvMessages,
+                                                    sendMessage, withTransport)
 import           Sound.SuperCollider.Message
 import           Sound.SuperCollider.SynthDef
-import           System.IO                    (Handle)
-import           System.Process.Typed         (checkExitCode, createPipe,
-                                               getStderr, getStdout, nullStream,
-                                               proc, setEnv, setStderr,
-                                               setStdin, setStdout,
-                                               withProcessWait)
-import           System.Timeout               (timeout)
+import           System.IO                         (Handle)
+import           System.Process.Typed              (checkExitCode, createPipe,
+                                                    getStderr, getStdout,
+                                                    nullStream, proc, setEnv,
+                                                    setStderr, setStdin,
+                                                    setStdout, withProcessWait)
+import           System.Timeout                    (timeout)
 
-data Server = Server (Async ()) Udp (TChan Message) ClientID (MVar Allocator)
+data Server = Server (Async ()) Udp (TChan Message) ClientID (IORef Allocator)
                      GroupID (Handle, Handle, Handle, Handle) (Server -> IO ())
 
 thread :: Getter Server (Async ())
@@ -76,7 +79,7 @@ udp h s@(Server _ a _ _ _ _ _ _) = (const s) <$> h a
 channel :: Getter Server (TChan Message)
 channel h s@(Server _ _ a _ _ _ _ _) = (const s) <$> h a
 
-allocator :: Getter Server (MVar Allocator)
+allocator :: Getter Server (IORef Allocator)
 allocator h s@(Server _ _ _ _ a _ _ _) = (const s) <$> h a
 
 defaultGroup :: Lens' Server GroupID
@@ -214,9 +217,9 @@ startServer port = liftIO $ do
   c <- atomically . dupTChan $ mq
   sendMessage t $ Notify True
   (cid, logins) <- checkAsync a $ notifyReply c
-  let (dgid, alloc) = allocatePermanentNodeID $ mkAllocator cid logins
+  let (alloc, dgid) = allocatePermanentNodeID $ mkAllocator cid logins
   sendMessage t $ NewGroup dgid AddToTail 0
-  Server a t mq cid <$> newMVar alloc
+  Server a t mq cid <$> newIORef alloc
                     <*> pure dgid
                     <*> pure hdls
                     <*> pure (`onServer` quit)
@@ -282,20 +285,13 @@ instance (Monoid w, Monad m, MonadMessage m) => MonadMessage (Strict.WriterT w m
 
 allocTempNodeID :: (MonadIO m, MonadServer m) => m NodeID
 allocTempNodeID = do
-  ma <- viewServer allocator
-  liftIO $ do
-    (nid, a) <- allocateTemporaryNodeID <$> takeMVar ma
-    putMVar ma $! a
-    pure nid
-
+  a <- viewServer allocator
+  liftIO $ atomicModifyIORef' a allocateTemporaryNodeID
 
 allocBufferID :: (MonadIO m, MonadServer m) => m BufferID
 allocBufferID = do
-  ma <- viewServer allocator
-  liftIO $ do
-    (bid, a) <- allocateBufferID <$> takeMVar ma
-    putMVar ma $! a
-    pure bid
+  a <- viewServer allocator
+  liftIO $ atomicModifyIORef' a allocateBufferID
 
 newGroup :: (MonadServer m, MonadMessage m, MonadIO m)
          => AddAction -> m NodeID
@@ -313,6 +309,13 @@ onServer s (ServerT m) = runReaderT m s
 
 inGroup :: MonadServer m => GroupID -> m a -> m a
 inGroup gid = shadow defaultGroup gid
+
+readBuffer :: (MonadIO m, MonadServer m, MonadMessage m)
+           => Filename -> StartFrame -> FrameCount -> m BufferID
+readBuffer fp sf fc = do
+  bid <- allocBufferID
+  msg $ AllocReadBuffer bid fp sf fc
+  pure bid
 
 cmd :: (MonadServer m, MonadIO m)
     => Message -> (Message -> Maybe a) -> m a
@@ -367,14 +370,14 @@ jackd buf dev =
     & setStdout createPipe
     & setStderr createPipe
 
-allocatePermanentNodeID :: Allocator -> (NodeID, Allocator)
-allocatePermanentNodeID a = (permNID a, a { permNID = permNID a + 1 })
+allocatePermanentNodeID :: Allocator -> (Allocator, NodeID)
+allocatePermanentNodeID a = (a { permNID = permNID a + 1 }, permNID a)
 
-allocateTemporaryNodeID :: Allocator -> (NodeID, Allocator)
-allocateTemporaryNodeID a = (tempNID a, a { tempNID = tempNID a + 1 })
+allocateTemporaryNodeID :: Allocator -> (Allocator, NodeID)
+allocateTemporaryNodeID a = (a { tempNID = tempNID a + 1 }, tempNID a)
 
-allocateBufferID :: Allocator -> (BufferID, Allocator)
-allocateBufferID a = (result, alloca) where
+allocateBufferID :: Allocator -> (Allocator, BufferID)
+allocateBufferID a = (alloca, result) where
   result | null $ bufIDs a = error "Out of buffers"
          | otherwise = head $ bufIDs a
   alloca = a { bufIDs = tail $ bufIDs a }
@@ -386,7 +389,7 @@ mkAllocator (ClientID cid) maxLogins = Allocator (r + 1) (r + 1000) [0 .. 1023] 
 data Allocator = Allocator {
   permNID :: NodeID
 , tempNID :: NodeID
-, bufIDs :: [BufferID]
+, bufIDs  :: [BufferID]
 } deriving (Eq, Read, Show)
 
 checkAsync :: MonadIO m => Async a -> IO b -> m b
@@ -431,7 +434,7 @@ waitSilence = do
       | otherwise = atomically (readTChan mq) >>= \case
           SynthCreated sid _ _ _ -> loop (Set.insert sid l) True
           SynthEnded sid _ _ _   -> loop (Set.delete sid l) x
-          _                            -> loop l x
+          _                      -> loop l x
 
 readMsgs :: Transport t => t -> TChan Message -> IO ()
 readMsgs t mq = loop where
