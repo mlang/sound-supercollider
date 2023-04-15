@@ -19,9 +19,10 @@ import           Control.Concurrent.STM            (atomically)
 import           Control.Concurrent.STM.TChan      (readTChan)
 import           Control.Concurrent.STM.TMChan     (TMChan, closeTMChan,
                                                     newTMChanIO, writeTMChan)
+import           Control.Monad                     (void)
 import           Control.Monad.IO.Class            (MonadIO (..))
 import           Control.Monad.Reader              (MonadReader (ask, local),
-                                                    MonadTrans (..), void)
+                                                    MonadTrans (..))
 import           Control.Monad.Trans.Accum         (AccumT, accum, add, look,
                                                     looks, mapAccumT, runAccumT)
 import qualified Control.Monad.Trans.State.Lazy    as Lazy
@@ -43,7 +44,7 @@ import           Data.Sort                         (sortBy)
 import           Sound.Osc.Fd                      (Bundle (..), Time,
                                                     sendBundle, time)
 import           Sound.SuperCollider.Message
-import           Sound.SuperCollider.Server        ( MonadMessage (..),
+import           Sound.SuperCollider.Server        (MonadMessage (..),
                                                     MonadServer (..), messages,
                                                     setNodeControl, thread, udp)
 
